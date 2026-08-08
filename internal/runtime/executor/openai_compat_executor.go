@@ -142,6 +142,7 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 		translated = sanitizeOpenAIResponsesReasoningEncryptedContent(ctx, "openai compat executor", translated)
 	}
 	reporter.SetTranslatedReasoningEffort(translated, to.String())
+	translated = normalizeDeveloperRole(translated)
 
 	url := strings.TrimSuffix(baseURL, "/") + endpoint
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(translated))
@@ -333,6 +334,7 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 	if err != nil {
 		return nil, err
 	}
+	translated = normalizeDeveloperRole(translated)
 
 	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
 	requestPath := helps.PayloadRequestPath(opts)
@@ -626,6 +628,7 @@ func (e *OpenAICompatExecutor) CountTokens(ctx context.Context, auth *cliproxyau
 	if err != nil {
 		return cliproxyexecutor.Response{}, err
 	}
+	translated = normalizeDeveloperRole(translated)
 
 	enc, err := helps.TokenizerForModel(modelForCounting)
 	if err != nil {
@@ -864,6 +867,34 @@ func (e *OpenAICompatExecutor) resolveCompatConfig(auth *cliproxyauth.Auth) *con
 		}
 	}
 	return nil
+}
+
+// normalizeDeveloperRole rewrites OpenAI Chat Completions message roles from
+// "developer" to "system". Many OpenAI-compatible upstreams (e.g. opencode)
+// only accept system/user/assistant/tool roles and reject "developer" with a
+// deserialization error, while OpenAI itself treats both roles as equivalent.
+func normalizeDeveloperRole(payload []byte) []byte {
+	if len(payload) == 0 {
+		return payload
+	}
+	messages := gjson.GetBytes(payload, "messages")
+	if !messages.IsArray() {
+		return payload
+	}
+	arr := messages.Array()
+	changed := false
+	out := payload
+	for i := range arr {
+		if arr[i].Get("role").String() != "developer" {
+			continue
+		}
+		out, _ = sjson.SetBytes(out, fmt.Sprintf("messages.%d.role", i), "system")
+		changed = true
+	}
+	if !changed {
+		return payload
+	}
+	return out
 }
 
 func (e *OpenAICompatExecutor) overrideModel(payload []byte, model string) []byte {
