@@ -672,6 +672,9 @@ type OpenAICompatibility struct {
 	// Headers optionally adds extra HTTP headers for requests sent to this provider.
 	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
 
+	// API 声明走哪种上游协议。空/默认走 chat/completions；"openai-responses" 走 /v1/responses 原生直通（input_image 原样透传）。
+	API string `yaml:"api,omitempty" json:"api,omitempty"`
+
 	// SupportPromptCacheKey enables derived prompt_cache_key injection for supported requests.
 	SupportPromptCacheKey bool `yaml:"support-prompt-cache-key,omitempty" json:"support-prompt-cache-key,omitempty"`
 
