@@ -534,7 +534,7 @@ func (h *OpenAIResponsesAPIHandler) OpenAIResponsesModels(c *gin.Context) {
 }
 
 func (h *OpenAIResponsesAPIHandler) prepareCodexMultiAgentV2Tools(c *gin.Context, payload []byte) []byte {
-	if h == nil || h.Cfg == nil || h.Cfg.OAuthOnlyFields["codex.optimize-multi-agent-v2"] {
+	if h == nil || h.Cfg == nil {
 		return payload
 	}
 
@@ -553,7 +553,7 @@ func (h *OpenAIResponsesAPIHandler) prepareCodexMultiAgentV2Tools(c *gin.Context
 		requestCtx,
 		requestHeaders,
 		payload,
-		h.Cfg.CodexOptimizeMultiAgentV2,
+		h.Cfg.Client.Codex.OptimizeMultiAgentV2,
 		homeEnabled,
 	)
 	if prepared && c != nil {
@@ -760,11 +760,12 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 			if !ok {
 				framer.Flush(&initialOutput)
 				errMsg, hasPendingError := handlers.PendingStreamError(errChan)
-				// 兼容 opencode 等上游提前断流（比如 function_call_arguments.delta 后直接 EOF）
-				// 有数据就当成功，不再硬性要求 terminal event，避免误判导致重试和拉黑
-				// ponytail: 宽松处理，严格校验时再恢复上面的分支
-				if !hasPendingError && framer.terminalEvent == "" && framer.dataFrames == 0 {
-					errMsg = &interfaces.ErrorMessage{StatusCode: http.StatusBadGateway, Error: fmt.Errorf("upstream stream closed before first payload")}
+				if !hasPendingError && framer.terminalEvent == "" {
+					message := "upstream stream closed before first payload"
+					if framer.dataFrames > 0 {
+						message = "upstream stream closed before a terminal event"
+					}
+					errMsg = &interfaces.ErrorMessage{StatusCode: http.StatusBadGateway, Error: fmt.Errorf("%s", message)}
 				}
 				if framer.dataFrames > 0 {
 					errMsg = sanitizeResponsesStreamErrorMessage(errMsg)
@@ -1064,10 +1065,6 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesStream(c *gin.Context, flush
 				return framer.terminalError
 			}
 			if framer.terminalEvent != "" {
-				return nil
-			}
-			// 宽松：有数据就视为完成，不再因缺少 terminal event 报错（opencode function_call 场景）
-			if framer.dataFrames > 0 {
 				return nil
 			}
 			lastEvent := framer.lastEvent
