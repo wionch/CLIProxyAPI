@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestNormalizeDeveloperRole(t *testing.T) {
@@ -30,10 +30,13 @@ func TestNormalizeDeveloperRole(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			out := normalizeDeveloperRole([]byte(tc.in))
-			roles := gjson.GetBytes(out, "messages.#.role").Array()
-			for _, r := range roles {
-				if r.String() == "developer" {
-					t.Fatalf("role developer leaked through: %s", string(out))
+			var roles []ojson.Result
+			if messages := ojson.GetBytesNoCopy(out, "messages"); messages.IsArray() {
+				for _, m := range messages.Array() {
+					roles = append(roles, m.Get("role"))
+					if m.Get("role").String() == "developer" {
+						t.Fatalf("role developer leaked through: %s", string(out))
+					}
 				}
 			}
 			if len(tc.wantRoles) > 0 {
